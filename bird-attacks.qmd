@@ -1,0 +1,147 @@
+---
+title: "Bird attacks (or not) - 1974"
+author: "Allison Horst"
+format: html
+execute: 
+  warning: false
+  message: false
+editor: visual
+---
+
+## A-well a bird bird bird...
+
+Did you sing it? DID YOU SING IT.
+
+Around 11pm this evening I saw [this tweet](https://twitter.com/tcarpenter216/status/1580771753873518593):
+
+\
+[![](images/paste-68076610.png){width="400"}](https://twitter.com/tcarpenter216/status/1580771753873518593)
+
+Tom's instinct makes perfect sense. And, I can't be the only data scientist who saw this and thought ["CHICKEN WINGS."](https://www.insider.com/restaurants-pricing-confusing-math-2018-10) So here I am, closing in on 1am, playing with a weird (and obviously fake) data set about bird attacks in 1974. Feels like a good October distraction and an opportunity to get some data wrangling rust off.
+
+In this post, I do some:
+
+-   Optical character recognition (OCR) with \`tesseract\`
+
+-   No elegance, no shame data tidying in R
+
+-   Interactive visualizations in JavaScript
+
+-   Terrible puns & wordplay. Warning: some of it may be hard to swallow.
+
+fowl, cuckoo, wing, fly, flap, take-off, beak, feather, soar, flock, rail, lark, duck,
+
+## Get the tools and data:
+
+Attach libraries:
+
+```{r}
+library(tesseract)
+library(tidyverse)
+library(patchwork)
+library(kableExtra)
+```
+
+Set my engine, OCR (optical character recognition) on those birds:
+
+```{r}
+ocr_eng <- tesseract("eng")
+text <- tesseract::ocr("bird-attacks.jpg", engine = ocr_eng)
+```
+
+Take a look:
+
+```{r}
+cat(text)
+```
+
+Alright we're in business...sort of. Next up, a bit of cleaning:
+
+```{r}
+# Separating into columns - first at the first number, then by a space, then at the next number: 
+bird_dat <- data.frame(text) |> 
+  mutate(text = strsplit(as.character(text), "\n")) |>  
+    unnest(text) |> 
+  filter(text != "") |> 
+  separate(col = "text" , 
+           into = c("body_parts", "leftover"), 
+           sep = "(?<=[a-zA-Z])\\s*(?=[0-9])",
+           extra = "merge") |> 
+  separate(col = "leftover",
+           into = c("body_parts_count", "leftover"),
+           sep = " ",
+           extra = "merge") |> 
+  separate(col = "leftover" , 
+           into = c("nature_of_wounds", "nature_of_wounds_counts"), 
+           sep = "(?<=[a-zA-Z])\\s*(?=[0-9])",
+           extra = "merge") |> 
+  slice(-c(1:2))
+
+# Some artisanal hacking. Not proud, but tired... 
+bird_dat$nature_of_wounds[16] <- "Body not recovered"
+bird_dat$nature_of_wounds_counts[16] <- bird_dat$body_parts_count[16]
+bird_dat$body_parts[16] <- NA
+bird_dat$body_parts_count[16] <- NA
+
+# At this point, splitting into separate data frames:
+body_parts_injured <- data.frame(body_parts = bird_dat$body_parts, n = bird_dat$body_parts_count) |> 
+  drop_na()
+
+wounds <- data.frame(wound_nature = bird_dat$nature_of_wounds, 
+                     n = bird_dat$nature_of_wounds_counts)
+
+# Where nature_of_wounds_counts is NA, combine text w/ following row.
+# No, this does not follow any cohesive data cleaning philosophy.
+for (i in 1:(length(wounds$n) - 1)) {
+  if (is.na(wounds$n[i])) {
+    wounds$wound_nature[i+1] <- paste(wounds$wound_nature[i], wounds$wound_nature[i+1])
+    }
+}
+
+# Then get rid of the duplicate text rows still containing NA
+wounds <- wounds |> 
+  drop_na() |> 
+  mutate(n = as.numeric(n))
+
+```
+
+Let's check them out:
+
+```{r}
+#| layout-ncol: 2
+
+body_parts_injured |> 
+  kable() |> 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+wounds |> 
+  kable() |> 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+Pass an R object to OJS:
+
+```{r}
+ojs_define(wounds = wounds)
+```
+
+```{ojs}
+wounds_transpose = transpose(wounds)
+```
+
+```{ojs}
+Plot.plot({
+  marks: [
+    Plot.barX(wounds_transpose, 
+    {y: "wound_nature", 
+    x: "n", 
+    sort: {y: "x", reverse: true},
+    fill: "navy"
+    })
+  ], 
+  marginLeft: 200, 
+  x: {label: "Number"},
+  y: {label: "Type of injury from bird attack"}
+})
+```
